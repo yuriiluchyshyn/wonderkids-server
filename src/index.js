@@ -2,8 +2,10 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 
-import { initSchema, upsertUser, getState, saveState } from './db.js';
+import { initSchema, upsertUser, getState, saveState, isNicknameAvailable } from './db.js';
 import { isValidEmail, signToken, requireAuth } from './auth.js';
+
+const NICKNAME_RE = /^[a-z0-9_]{3,12}$/;
 
 const PORT = Number(process.env.PORT ?? 3001);
 const CORS_ORIGIN = (process.env.CORS_ORIGIN ?? 'http://localhost:4321')
@@ -37,6 +39,24 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (err) {
     console.error('[login] failed:', err.message);
     return res.status(500).json({ error: 'login_failed' });
+  }
+});
+
+/**
+ * Check whether a child nickname is free (globally), excluding the caller's own
+ * account. Used by the parent portal's add-child form for live validation.
+ */
+app.get('/api/nickname', requireAuth, async (req, res) => {
+  const nick = String(req.query.nick ?? '').trim().toLowerCase();
+  if (!NICKNAME_RE.test(nick)) {
+    return res.status(400).json({ error: 'invalid_nickname' });
+  }
+  try {
+    const available = await isNicknameAvailable(nick, req.user.id);
+    return res.json({ available });
+  } catch (err) {
+    console.error('[nickname] failed:', err.message);
+    return res.status(500).json({ error: 'check_failed' });
   }
 });
 

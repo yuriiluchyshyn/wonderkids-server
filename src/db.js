@@ -79,6 +79,23 @@ export async function getState(userId) {
   return rows[0]?.state ?? null;
 }
 
+/**
+ * Is a child nickname free across all accounts? Scans the `children` JSONB
+ * arrays with a containment match, optionally excluding one account (so a
+ * parent re-saving their own child's nickname doesn't collide with itself).
+ */
+export async function isNicknameAvailable(nickname, exceptUserId = null) {
+  const probe = JSON.stringify([{ profile: { nickname: String(nickname).toLowerCase() } }]);
+  const { rows } = await pool.query(
+    `SELECT 1 FROM game_states
+      WHERE state->'children' @> $1::jsonb
+        AND ($2::int IS NULL OR user_id <> $2)
+      LIMIT 1`,
+    [probe, exceptUserId],
+  );
+  return rows.length === 0;
+}
+
 /** Insert or replace the full save for a user. Returns the updated timestamp. */
 export async function saveState(userId, state) {
   const { rows } = await pool.query(
