@@ -72,17 +72,17 @@ app.get('/api/nickname', requireAuth, async (req, res) => {
  * (scoped to the owning account, auto-selecting that child on the client).
  */
 app.post('/api/auth/child-login', async (req, res) => {
-  const { identifier, password } = req.body ?? {};
-  if (typeof identifier !== 'string' || !identifier.trim() || typeof password !== 'string') {
+  const { identifier, pin } = req.body ?? {};
+  if (typeof identifier !== 'string' || !identifier.trim() || typeof pin !== 'string') {
     return res.status(400).json({ error: 'invalid_credentials' });
   }
   try {
-    const r = await resolveChildLogin(identifier, password);
+    const r = await resolveChildLogin(identifier, pin);
     if (r.status === 'ok') {
       const token = signChildToken(r.userId, r.childId);
       return res.json({ token, childId: r.childId, user: { id: r.userId } });
     }
-    if (r.status === 'bad_password') return res.status(401).json({ error: 'invalid_credentials' });
+    if (r.status === 'bad_pin') return res.status(401).json({ error: 'invalid_pin' });
     return res.status(404).json({ error: 'child_not_found' });
   } catch (err) {
     console.error('[child-login] failed:', err.message);

@@ -62,10 +62,14 @@ export async function initSchema() {
       gender      TEXT NOT NULL DEFAULT 'girl',
       birth_year  INTEGER,
       birth_month INTEGER,
-      theme_id    TEXT NOT NULL DEFAULT 'unicorns',
+      theme_id    TEXT,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS wk_children_parent_idx ON wk_children(parent_id);
+    -- theme_id is NULL until the child picks a world (neutral galaxy default).
+    -- Idempotent fixups for tables created by an earlier (NOT NULL) revision:
+    ALTER TABLE wk_children ALTER COLUMN theme_id DROP NOT NULL;
+    ALTER TABLE wk_children ALTER COLUMN theme_id DROP DEFAULT;
 
     CREATE TABLE IF NOT EXISTS wk_child_settings (
       child_id             TEXT PRIMARY KEY REFERENCES wk_children(id) ON DELETE CASCADE,
@@ -164,7 +168,7 @@ function assembleChild(row, settings, stats, screen, progressRows, treasureRows,
       birthMonth: row.birth_month ?? undefined,
       gender: row.gender,
     },
-    themeId: row.theme_id,
+    themeId: row.theme_id ?? null,
     artifacts: st.artifacts ?? 0,
     tasksCompleted: st.tasks_completed ?? 0,
     hintsSurfaced: st.hints_surfaced ?? 0,
@@ -290,7 +294,7 @@ export async function saveState(userId, state) {
            theme_id=EXCLUDED.theme_id`,
         [
           id, userId, i, p.name ?? 'Друже', nickname, email, p.pin ?? '', p.password ?? '',
-          p.gender ?? 'girl', p.birthYear ?? null, p.birthMonth ?? null, c.themeId ?? 'unicorns',
+          p.gender ?? 'girl', p.birthYear ?? null, p.birthMonth ?? null, c.themeId ?? null,
         ],
       );
 
@@ -398,19 +402,19 @@ export async function isNicknameAvailable(nickname, exceptUserId = null) {
 }
 
 /**
- * Resolve a child login by nickname OR email + parent-set password. Returns
- * `{ status }` ('ok' + { userId, childId } | 'bad_password' | 'not_found').
+ * Resolve a child login by unique nickname (or email) + parent-set PIN. Returns
+ * `{ status }` ('ok' + { userId, childId } | 'bad_pin' | 'not_found').
  */
-export async function resolveChildLogin(identifier, password) {
+export async function resolveChildLogin(identifier, pin) {
   const id = String(identifier ?? '').trim().toLowerCase();
   if (!id) return { status: 'not_found' };
   const { rows } = await pool.query(
-    `SELECT id, parent_id, password FROM wk_children
+    `SELECT id, parent_id, pin FROM wk_children
       WHERE lower(nickname) = $1 OR lower(email) = $1`,
     [id],
   );
   if (rows.length === 0) return { status: 'not_found' };
-  const match = rows.find((r) => String(r.password ?? '') === String(password ?? ''));
-  if (!match) return { status: 'bad_password' };
+  const match = rows.find((r) => String(r.pin ?? '') === String(pin ?? ''));
+  if (!match) return { status: 'bad_pin' };
   return { status: 'ok', userId: match.parent_id, childId: match.id };
 }
