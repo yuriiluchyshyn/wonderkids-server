@@ -8,7 +8,7 @@ import {
   getState,
   saveState,
   isNicknameAvailable,
-  findChildByCredential,
+  resolveChildLogin,
 } from './db.js';
 import { isValidEmail, signToken, signChildToken, requireAuth } from './auth.js';
 
@@ -77,10 +77,13 @@ app.post('/api/auth/child-login', async (req, res) => {
     return res.status(400).json({ error: 'invalid_credentials' });
   }
   try {
-    const match = await findChildByCredential(identifier, password);
-    if (!match) return res.status(401).json({ error: 'invalid_credentials' });
-    const token = signChildToken(match.userId, match.childId);
-    return res.json({ token, childId: match.childId, user: { id: match.userId } });
+    const r = await resolveChildLogin(identifier, password);
+    if (r.status === 'ok') {
+      const token = signChildToken(r.userId, r.childId);
+      return res.json({ token, childId: r.childId, user: { id: r.userId } });
+    }
+    if (r.status === 'bad_password') return res.status(401).json({ error: 'invalid_credentials' });
+    return res.status(404).json({ error: 'child_not_found' });
   } catch (err) {
     console.error('[child-login] failed:', err.message);
     return res.status(500).json({ error: 'login_failed' });

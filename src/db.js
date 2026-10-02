@@ -97,13 +97,17 @@ export async function isNicknameAvailable(nickname, exceptUserId = null) {
 }
 
 /**
- * Resolve a child login (Tech Spec v2.1 US-1 / FR-AUTH): find the child whose
- * nickname OR email matches `identifier` and whose parent-set password matches.
- * Returns `{ userId, childId }` or null. Scans the children JSONB arrays.
+ * Resolve a child login (Tech Spec v2.1 US-1 / FR-AUTH): match the child whose
+ * nickname OR email equals `identifier`, then check the parent-set password.
+ * Returns `{ status }` where status is:
+ *   'ok'           → plus { userId, childId }
+ *   'bad_password' → identifier exists but the password is wrong
+ *   'not_found'    → no child with that nickname/email (ask a parent to create one)
  */
-export async function findChildByCredential(identifier, password) {
+export async function resolveChildLogin(identifier, password) {
   const id = String(identifier ?? '').trim().toLowerCase();
-  if (!id) return null;
+  if (!id) return { status: 'not_found' };
+  let identifierExists = false;
   for (const field of ['nickname', 'email']) {
     const probe = JSON.stringify([{ profile: { [field]: id } }]);
     const { rows } = await pool.query(
@@ -112,15 +116,17 @@ export async function findChildByCredential(identifier, password) {
     );
     for (const row of rows) {
       const children = Array.isArray(row.state?.children) ? row.state.children : [];
-      const child = children.find(
-        (c) =>
-          String(c?.profile?.[field] ?? '').toLowerCase() === id &&
-          String(c?.profile?.password ?? '') === String(password ?? ''),
-      );
-      if (child && child.id) return { userId: row.user_id, childId: child.id };
+      for (const c of children) {
+        if (String(c?.profile?.[field] ?? '').toLowerCase() === id) {
+          identifierExists = true;
+          if (String(c?.profile?.password ?? '') === String(password ?? '') && c.id) {
+            return { status: 'ok', userId: row.user_id, childId: c.id };
+          }
+        }
+      }
     }
   }
-  return null;
+  return { status: identifierExists ? 'bad_password' : 'not_found' };
 }
 
 /** Insert or replace the full save for a user. Returns the updated timestamp. */
