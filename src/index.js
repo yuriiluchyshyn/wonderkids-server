@@ -2,8 +2,15 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 
-import { initSchema, upsertUser, getState, saveState, isNicknameAvailable } from './db.js';
-import { isValidEmail, signToken, requireAuth } from './auth.js';
+import {
+  initSchema,
+  upsertUser,
+  getState,
+  saveState,
+  isNicknameAvailable,
+  findChildByCredential,
+} from './db.js';
+import { isValidEmail, signToken, signChildToken, requireAuth } from './auth.js';
 
 const NICKNAME_RE = /^[a-z0-9_]{3,12}$/;
 
@@ -57,6 +64,26 @@ app.get('/api/nickname', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('[nickname] failed:', err.message);
     return res.status(500).json({ error: 'check_failed' });
+  }
+});
+
+/**
+ * Child login: nickname OR email + parent-set password → a child session token
+ * (scoped to the owning account, auto-selecting that child on the client).
+ */
+app.post('/api/auth/child-login', async (req, res) => {
+  const { identifier, password } = req.body ?? {};
+  if (typeof identifier !== 'string' || !identifier.trim() || typeof password !== 'string') {
+    return res.status(400).json({ error: 'invalid_credentials' });
+  }
+  try {
+    const match = await findChildByCredential(identifier, password);
+    if (!match) return res.status(401).json({ error: 'invalid_credentials' });
+    const token = signChildToken(match.userId, match.childId);
+    return res.json({ token, childId: match.childId, user: { id: match.userId } });
+  } catch (err) {
+    console.error('[child-login] failed:', err.message);
+    return res.status(500).json({ error: 'login_failed' });
   }
 });
 

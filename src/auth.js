@@ -12,10 +12,21 @@ export function isValidEmail(email) {
   return typeof email === 'string' && EMAIL_RE.test(email.trim());
 }
 
-/** Sign a token identifying a user. */
+/** Sign a token identifying a (parent) account user. */
 export function signToken(user) {
   return jwt.sign({ email: user.email }, JWT_SECRET, {
     subject: String(user.id),
+    expiresIn: JWT_EXPIRES_IN,
+  });
+}
+
+/**
+ * Sign a child session token: `subject` is the owning account's user id (so
+ * state loads normally), plus the `childId` to auto-select on the client.
+ */
+export function signChildToken(userId, childId) {
+  return jwt.sign({ childId }, JWT_SECRET, {
+    subject: String(userId),
     expiresIn: JWT_EXPIRES_IN,
   });
 }

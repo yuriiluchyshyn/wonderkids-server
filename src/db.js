@@ -96,6 +96,33 @@ export async function isNicknameAvailable(nickname, exceptUserId = null) {
   return rows.length === 0;
 }
 
+/**
+ * Resolve a child login (Tech Spec v2.1 US-1 / FR-AUTH): find the child whose
+ * nickname OR email matches `identifier` and whose parent-set password matches.
+ * Returns `{ userId, childId }` or null. Scans the children JSONB arrays.
+ */
+export async function findChildByCredential(identifier, password) {
+  const id = String(identifier ?? '').trim().toLowerCase();
+  if (!id) return null;
+  for (const field of ['nickname', 'email']) {
+    const probe = JSON.stringify([{ profile: { [field]: id } }]);
+    const { rows } = await pool.query(
+      `SELECT user_id, state FROM game_states WHERE state->'children' @> $1::jsonb`,
+      [probe],
+    );
+    for (const row of rows) {
+      const children = Array.isArray(row.state?.children) ? row.state.children : [];
+      const child = children.find(
+        (c) =>
+          String(c?.profile?.[field] ?? '').toLowerCase() === id &&
+          String(c?.profile?.password ?? '') === String(password ?? ''),
+      );
+      if (child && child.id) return { userId: row.user_id, childId: child.id };
+    }
+  }
+  return null;
+}
+
 /** Insert or replace the full save for a user. Returns the updated timestamp. */
 export async function saveState(userId, state) {
   const { rows } = await pool.query(
